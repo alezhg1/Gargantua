@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gargantua - NASA Level Black Hole Simulation</title>
+    <style>
+        :root {
+            --ui-color: rgba(200, 220, 255, 0.8);
+            --ui-bg: rgba(5, 10, 15, 0.4);
+            --accent: #e67e22;
+        }
+        body {
+            margin: 0; overflow: hidden; background-color: #000;
+            color: var(--ui-color); font-family: 'SF Pro Display', -apple-system, Helvetica, sans-serif;
+            user-select: none; -webkit-font-smoothing: antialiased;
+        }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            background: 
+                linear-gradient(0deg, rgba(0,0,0,0.6) 0%, transparent 15%),
+                linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 15%);
+        }
+
+        #telemetry {
+            position: absolute; top: 40px; left: 40px; width: 350px;
+            background: var(--ui-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border-left: 2px solid var(--accent); padding: 25px; border-radius: 0 12px 12px 0;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        h1 { margin: 0 0 5px 0; font-size: 24px; font-weight: 300; letter-spacing: 4px; color: #fff; text-transform: uppercase; }
+        .sub { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 25px; }
+        
+        .data-row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding: 10px 0; }
+        .data-label { font-size: 11px; letter-spacing: 1px; color: rgba(255,255,255,0.5); }
+        .data-value { font-size: 13px; font-family: 'SF Mono', Consolas, monospace; font-weight: 600; color: #fff; }
+
+        #controls {
+            position: absolute; bottom: 40px; width: 100%; text-align: center;
+            font-size: 11px; letter-spacing: 4px; color: rgba(255, 255, 255, 0.4); text-transform: uppercase;
+        }
+
+        /* Крестик по центру (оптический маркер) */
+        .crosshair {
+            position: absolute; top: 50%; left: 50%; width: 20px; height: 20px;
+            transform: translate(-50%, -50%); opacity: 0.15;
+        }
+        .crosshair::before { content: ''; position: absolute; top: 9px; left: 0; width: 20px; height: 2px; background: #fff; }
+        .crosshair::after { content: ''; position: absolute; top: 0; left: 9px; width: 2px; height: 20px; background: #fff; }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <div id="telemetry">
+        <h1>Gargantua</h1>
+        <div class="sub">Schwarzschild Event Horizon Observatory</div>
+        
+        <div class="data-row"><span class="data-label">MASS (M_☉)</span><span class="data-value">4.3 × 10⁶</span></div>
+        <div class="data-row"><span class="data-label">METRIC</span><span class="data-value">Schwarzschild</span></div>
+        <div class="data-row"><span class="data-label">GEODESIC INTEGRATION</span><span class="data-value">Runge-Kutta 4</span></div>
+        <div class="data-row"><span class="data-label">RAY STEPS</span><span class="data-value">350 (Adaptive)</span></div>
+        <div class="data-row"><span class="data-label">ISCO RADIUS</span><span class="data-value">3.00 R_s</span></div>
+        <div class="data-row"><span class="data-label">OBSERVER DISTANCE</span><span class="data-value" id="ui-dist">10.00 R_s</span></div>
+    </div>
+    <div class="crosshair"></div>
+    <div id="controls">Orbital Drag: Mouse / Touch &nbsp;&nbsp;|&nbsp;&nbsp; Zoom: Scroll</div>
+</div>
+
+<canvas id="glcanvas"></canvas>
+
+<!-- ========================================== -->
+<!-- PASS 1: ФИЗИЧЕСКОЕ ЯДРО (RAYMARCHING + RK4)-->
+<!-- ========================================== -->
+<script id="vs-scene" type="x-shader/x-vertex">
+    #version 300 es
+    in vec2 a_position;
+    out vec2 v_uv;
+    void main() {
+        v_uv = a_position * 0.5 + 0.5;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+    }
+</script>
+
+<script id="fs-scene" type="x-shader/x-fragment">
+    #version 300 es
+    precision highp float;
+
+    in vec2 v_uv;
+    layout(location = 0) out vec4 fragColor;
+
+    uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform vec3 u_camPos;
+    uniform mat3 u_camMat;
+
+    #define MAX_STEPS 350
+    #define RS 1.0            // Радиус Шварцшильда
+    #define ISCO 3.0          // Внутренняя устойчивая орбита (Inner Edge)
+    #define DISK_OUT 12.0     // Внешний край диска
+    #define PHOTON_RING 1.5   // Фотонная сфера
+
+    // Мягкий 3D Шум для плазмы и туманностей
+    float hash(float n) { return fract(sin(n) * 43758.5453123); }
+    float noise(vec3 x) {
+        vec3 p = floor(x); vec3 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        float n = p.x + p.y * 57.0 + 113.0 * p.z;
+        return mix(mix(mix(hash(n+  0.0), hash(n+  1.0),f.x),
+                       mix(hash(n+ 57.0), hash(n+ 58.0),f.x),f.y),
+                   mix(mix(hash(n+113.0), hash(n+114.0),f.x),
+                       mix(hash(n+170.0), hash(n+171.0),f.x),f.y),f.z);
+    }
+
+    // ==========================================
+    // ФИЗИКА ГЕОДЕЗИЧЕСКИХ (ГРАВИТАЦИОННОЕ ЛИНЗИРОВАНИЕ)
+    // ==========================================
+    // Ускорение фотона в метрике Шварцшильда: a = - (1.5 * Rs * h^2 / r^5) * r_vec
+    vec3 getAcceleration(vec3 p, vec3 v) {
+        vec3 L = cross(p, v);
+        float h2 = dot(L, L);
+        float r2 = dot(p, p);
+        float r5 = r2 * r2 * sqrt(r2);
+        return - (1.5 * RS * h2 / r5) * p;
+    }
+
+    // Интегратор 4-го порядка Runge-Kutta для искривления лучей
+    void rk4_step(inout vec3 p, inout vec3 v, float dt) {
+        vec3 k1_v = getAcceleration(p, v);
+        vec3 k1_p = v;
+
+        vec3 k2_v = getAcceleration(p + 0.5 * dt * k1_p, v + 0.5 * dt * k1_v);
+        vec3 k2_p = v + 0.5 * dt * k1_v;
+
+        vec3 k3_v = getAcceleration(p + 0.5 * dt * k2_p, v + 0.5 * dt * k2_v);
+        vec3 k3_p = v + 0.5 * dt * k2_v;
+
+        vec3 k4_v = getAcceleration(p + dt * k3_p, v + dt * k3_v);
+        vec3 k4_p = v + dt * k3_v;
+
+        p += (dt / 6.0) * (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p);
+        v += (dt / 6.0) * (k1_v + 2.0 * k2_v + 2.0 * k3_v + k4_v);
+        v = normalize(v); // Скорость света постоянна
+    }
+
+    // ==========================================
+    // ВИЗУАЛИЗАЦИЯ (АККРЕЦИОННЫЙ ДИСК)
+    // ==========================================
+    // Функция излучения абсолютно черного тела (Blackbody Radiation)
+    vec3 getBlackbody(float temp) {
+        vec3 color = vec3(0.0);
+        // temp: 0.0 (Тьма) -> 0.3 (Темно-красный) -> 0.7 (Желто-белый) -> 1.0+ (Голубой)
+        color.r = smoothstep(0.0, 0.5, temp) + 0.1 * temp;
+        color.g = smoothstep(0.2, 0.8, temp);
+        color.b = smoothstep(0.5, 1.0, temp) + max(0.0, temp - 1.0) * 1.5;
+        return color;
+    }
+
+    vec4 sampleAccretionDisk(vec3 p, vec3 rayDir) {
+        float r = length(p.xz);
+        
+        // Математически гладкий профиль диска (Экспоненциальное утолщение к краям)
+        float thickness = 0.03 + 0.04 * (r - ISCO);
+        float h = abs(p.y);
+        
+        // Быстрый выход, если луч вне геометрии диска
+        if (r < ISCO || r > DISK_OUT || h > thickness * 4.0) return vec4(0.0);
+
+        // Кеплеровская кинематика газа (вращение)
+        float velMag = sqrt(RS / (2.0 * r)); 
+        vec3 velDir = normalize(vec3(-p.z, 0.0, p.x));
+        vec3 gasVel = velDir * velMag;
+
+        // Релятивистский Доплер и Красное Смещение
+        float cosTheta = dot(-rayDir, gasVel); // Угол между лучом наблюдения и газом
+        float gamma = 1.0 / sqrt(1.0 - velMag * velMag);
+        float dopplerShift = 1.0 / (gamma * (1.0 - velMag * cosTheta));
+        float gravRedshift = sqrt(1.0 - RS / r);
+        float D = dopplerShift * gravRedshift; // Итоговый фактор сдвига
+
+        // Плотность плазмы (мягкое затухание + радиальные границы)
+        float density = exp(-h / thickness); 
+        density *= smoothstep(ISCO, ISCO + 0.5, r) * smoothstep(DISK_OUT, DISK_OUT - 2.0, r);
+
+        // Легкая спиральная текстура (без шума, только гладкие волны)
+        float angle = atan(p.z, p.x);
+        float phase = angle - (u_time * 0.5) * (velMag / r); // Закручивание
+        float spiral = sin(phase * 3.0 - r * 1.5) * 0.5 + 0.5;
+        density *= mix(0.7, 1.0, spiral); // Дает красивые мягкие полосы плазмы
+
+        // Температурный профиль газа T ~ r^-0.75
+        float baseTemp = pow(ISCO / r, 0.8);
+        
+        // Сильное влияние Доплера на воспринимаемую температуру (Цвет)
+        float shiftedTemp = baseTemp * D;
+        vec3 color = getBlackbody(shiftedTemp);
+
+        // Болометрическая светимость масштабируется как D^4 (релятивистский инвариант)
+        float intensity = pow(D, 4.0) * 12.0; 
+        
+        // Добавление яркости внутреннему краю (Фотонное кольцо диска)
+        intensity *= mix(1.0, 3.0, exp(-(r - ISCO)*2.0));
+
+        return vec4(color * intensity * density, density);
+    }
+
+    // ==========================================
+    // ВИЗУАЛИЗАЦИЯ (ЗВЕЗДНЫЙ ФОН И МЛЕЧНЫЙ ПУТЬ)
+    // ==========================================
+    vec3 sampleBackground(vec3 dir) {
+        // Млечный Путь (экваториальная пылевая полоса)
+        float galacticPlane = exp(-abs(dir.y) * 4.0);
+        float dustNoise = noise(dir * 5.0) * 0.5 + noise(dir * 10.0) * 0.25;
+        vec3 galaxyColor = vec3(0.08, 0.05, 0.03) * galacticPlane * dustNoise * 3.0;
+
+        // Стабильные мягкие звезды (не мерцают при линзировании)
+        vec3 p = dir * 150.0;
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        
+        // Псевдо-Вороной для звезд
+        vec2 starData = vec2(0.0);
+        float minDist = 1.0;
+        float hValue = 0.0;
+        for(int y=-1; y<=1; y++) {
+            for(int x=-1; x<=1; x++) {
+                for(int z=-1; z<=1; z++) {
+                    vec3 neighbor = vec3(float(x), float(y), float(z));
+                    vec3 pHash = i + neighbor;
+                    float h = fract(sin(dot(pHash, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+                    vec3 offset = vec3(
+                        fract(h * 15.3), fract(h * 27.1), fract(h * 33.7)
+                    );
+                    float d = length(f - neighbor - offset);
+                    if(d < minDist) {
+                        minDist = d;
+                        hValue = h;
+                    }
+                }
+            }
+        }
+        
+        // Рисуем звезду только если hash высокий (редкие звезды)
+        float starIntensity = smoothstep(0.3, 0.0, minDist) * step(0.95, hValue);
+        vec3 starColor = mix(vec3(1.0, 0.7, 0.4), vec3(0.5, 0.8, 1.0), fract(hValue * 17.0));
+        vec3 stars = starColor * starIntensity * 5.0;
+
+        return galaxyColor + stars;
+    }
+
+    // ==========================================
+    // ГЛАВНЫЙ ЦИКЛ (RAYMARCHING)
+    // ==========================================
+    void main() {
+        vec2 uv = (v_uv - 0.5) * 2.0;
+        uv.x *= u_resolution.x / u_resolution.y;
+
+        vec3 ro = u_camPos;
+        // Узкий FOV (Телеобъектив), чтобы дыра выглядела монументально
+        vec3 rd = normalize(u_camMat * vec3(uv, 1.8)); 
+
+        vec3 color = vec3(0.0);
+        float transmittance = 1.0;
+        
+        vec3 p = ro;
+        vec3 v = rd;
+
+        // Интегрирование путей лучей
+        for (int i = 0; i < MAX_STEPS; i++) {
+            float r = length(p);
+
+            // Поглощение Горизонтом Событий (Тьма)
+            if (r < RS * 1.02) {
+                break;
+            }
+
+            // Луч улетел в открытый космос (Выход из гравитационного колодца)
+            if (r > 15.0) {
+                color += transmittance * sampleBackground(v);
+                break;
+            }
+
+            // Волюметрический рендер плазмы диска
+            if (abs(p.y) < 1.0 && r > ISCO && r < DISK_OUT) {
+                vec4 disk = sampleAccretionDisk(p, v);
+                
+                // alpha зависит от плотности и длины шага
+                float alpha = disk.a * 0.12; 
+                
+                // Накопление света
+                color += transmittance * disk.rgb * alpha;
+                transmittance *= (1.0 - alpha);
+                
+                // Ранний выход, если луч полностью заблокирован газом
+                if (transmittance < 0.01) break; 
+            }
+
+            // Адаптивный шаг dt: 
+            // Меньший шаг вблизи черной дыры для идеальной точности колец Эйнштейна
+            float distToEventHorizon = r - RS;
+            float dt = 0.02 + 0.1 * smoothstep(0.0, 5.0, distToEventHorizon);
+            
+            rk4_step(p, v, dt);
+        }
+
+        fragColor = vec4(color, 1.0);
+    }
+</script>
+
+<!-- ========================================== -->
+<!-- PASS 2: CINEMATIC POST-PROCESSING          -->
+<!-- ========================================== -->
+<script id="vs-post" type="x-shader/x-vertex">
+    #version 300 es
+    in vec2 a_position;
+    out vec2 v_uv;
+    void main() {
+        v_uv = a_position * 0.5 + 0.5;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+    }
+</script>
+
+<script id="fs-post" type="x-shader/x-fragment">
+    #version 300 es
+    precision highp float;
+
+    in vec2 v_uv;
+    out vec4 fragColor;
+
+    uniform sampler2D u_texture;
+    uniform vec2 u_resolution;
+
+    // ACES Tone Mapping (Преобразование HDR свечения в реалистичные цвета монитора)
+    vec3 ACESFilm(vec3 x) {
+        float a = 2.51; float b = 0.03; float c = 2.43; float d = 0.59; float e = 0.14;
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    }
+
+    // Мягкий широкоугольный Cinematic Bloom (Гауссово размытие)
+    vec3 getCinematicBloom(vec2 uv) {
+        vec3 bloom = vec3(0.0);
+        float weightSum = 0.0;
+        
+        // Эллиптическое размытие (имитация анаморфных линз)
+        vec2 texel = vec2(1.0 / u_resolution.x, 1.0 / u_resolution.y);
+        float radius = 4.0; 
+        
+        for(float x = -radius; x <= radius; x += 1.0) {
+            for(float y = -radius; y <= radius; y += 1.0) {
+                // Масштабируем по X для легкого анаморфного горизонтального свечения
+                vec2 offset = vec2(x * 1.5, y) * texel * 2.5; 
+                float weight = exp(-0.5 * (x*x + y*y) / (radius * 0.5));
+                
+                vec3 col = texture(u_texture, uv + offset).rgb;
+                // Порог свечения (Bloom Threshold)
+                vec3 highlight = max(col - vec3(1.2), vec3(0.0)); 
+                
+                bloom += highlight * weight;
+                weightSum += weight;
+            }
+        }
+        return bloom / weightSum;
+    }
+
+    void main() {
+        vec2 uv = v_uv;
+        vec2 centerDir = uv - 0.5;
+        float dist = length(centerDir);
+
+        // Читаем сырой HDR кадр из 1-го прохода
+        vec3 color = texture(u_texture, uv).rgb;
+
+        // Очень мягкая оптическая хроматическая аберрация (только на самых краях)
+        float ca = smoothstep(0.3, 0.7, dist) * 0.005;
+        color.r = texture(u_texture, uv - centerDir * ca).r;
+        color.b = texture(u_texture, uv + centerDir * ca).b;
+
+        // Добавляем кинематографичное свечение
+        vec3 bloom = getCinematicBloom(uv);
+        color += bloom * 1.2;
+
+        // ACES Tone Mapping
+        color = ACESFilm(color);
+
+        // Гамма-коррекция (Standard sRGB)
+        color = pow(color, vec3(1.0 / 2.2));
+
+        // Мягкая виньетка (затемнение по краям линзы)
+        float vignette = 1.0 - smoothstep(0.5, 1.5, dist);
+        color *= mix(0.6, 1.0, vignette);
+
+        fragColor = vec4(color, 1.0);
+    }
+</script>
+
+<script>
+    // ==========================================
+    // ВЕБГЛ ДВИЖОК И УПРАВЛЕНИЕ КАМЕРОЙ
+    // ==========================================
+    const canvas = document.getElementById('glcanvas');
+    const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false });
+
+    if (!gl) {
+        document.body.innerHTML = "<h2 style='color:#ff4444;text-align:center;margin-top:20vh;font-family:sans-serif;'>ОШИБКА: WebGL 2.0 не поддерживается вашим браузером/GPU.</h2>";
+        throw new Error("WebGL2 Error");
+    }
+
+    // ВАЖНО: Активация текстур с плавающей запятой (HDR)
+    const extFloat = gl.getExtension("EXT_color_buffer_float");
+    const extTexFloat = gl.getExtension("OES_texture_float_linear");
+
+    function createShader(type, src) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, src.trim());
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error("Shader Error:", gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+
+    function createProgram(vsSrc, fsSrc) {
+        const prog = gl.createProgram();
+        gl.attachShader(prog, createShader(gl.VERTEX_SHADER, vsSrc));
+        gl.attachShader(prog, createShader(gl.FRAGMENT_SHADER, fsSrc));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+            console.error("Program Error:", gl.getProgramInfoLog(prog));
+            return null;
+        }
+        return prog;
+    }
+
+    const progScene = createProgram(document.getElementById('vs-scene').textContent, document.getElementById('fs-scene').textContent);
+    const progPost = createProgram(document.getElementById('vs-post').textContent, document.getElementById('fs-post').textContent);
+
+    // Геометрия (Fullscreen Triangle)
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,  3,-1,  -1,3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    // Настройка Framebuffer Object для HDR (RGBA16F)
+    let fbo, hdrTex;
+    function setupRenderTarget(width, height) {
+        if (fbo) gl.deleteFramebuffer(fbo);
+        if (hdrTex) gl.deleteTexture(hdrTex);
+
+        hdrTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, hdrTex);
+        
+        // 16-bit float для сохранения яркости свыше 1.0 (Основа реалистичного свечения)
+        const format = extFloat ? gl.RGBA16F : gl.RGBA;
+        const type = extFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+
+        gl.texImage2D(gl.TEXTURE_2D, 0, format, width, height, 0, gl.RGBA, type, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, hdrTex, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
+    // Ресайз окна (Оптимизация: dpr = 1.0 обеспечивает идеальный баланс между 60FPS и качеством)
+    function resize() {
+        const dpr = window.devicePixelRatio > 1.5 ? 1.0 : window.devicePixelRatio; 
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        setupRenderTarget(canvas.width, canvas.height);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Камера
+    let camRadius = 10.0;
+    let camTheta = Math.PI / 2.05; // Почти строго с экватора для красивого профиля диска
+    let camPhi = 0.5;
+    
+    let isDrag = false, lastX = 0, lastY = 0;
+    const uiDist = document.getElementById('ui-dist');
+
+    function interactStart(x, y) { isDrag = true; lastX = x; lastY = y; }
+    function interactMove(x, y) {
+        if (!isDrag) return;
+        camPhi -= (x - lastX) * 0.005;
+        camTheta += (y - lastY) * 0.005;
+        camTheta = Math.max(0.1, Math.min(Math.PI - 0.1, camTheta)); // Блок полюсов
+        lastX = x; lastY = y;
+    }
+    function interactEnd() { isDrag = false; }
+
+    window.addEventListener('mousedown', e => interactStart(e.clientX, e.clientY));
+    window.addEventListener('mousemove', e => interactMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', interactEnd);
+    window.addEventListener('touchstart', e => interactStart(e.touches[0].clientX, e.touches[0].clientY), {passive:true});
+    window.addEventListener('touchmove', e => interactMove(e.touches[0].clientX, e.touches[0].clientY), {passive:true});
+    window.addEventListener('touchend', interactEnd);
+
+    window.addEventListener('wheel', e => {
+        camRadius += e.deltaY * 0.01;
+        camRadius = Math.max(4.0, Math.min(25.0, camRadius));
+        uiDist.innerText = camRadius.toFixed(2) + " R_s";
+    }, {passive:true});
+
+    // Матрица обзора камеры (LookAt)
+    function normalize(v) {
+        const l = Math.hypot(v[0], v[1], v[2]);
+        return l===0 ? [0,0,0] : [v[0]/l, v[1]/l, v[2]/l];
+    }
+    function cross(a, b) {
+        return [ a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0] ];
+    }
+    function getLookAt(ro, ta) {
+        const cw = normalize([ta[0]-ro[0], ta[1]-ro[1], ta[2]-ro[2]]);
+        const cu = normalize(cross(cw, [0, 1, 0]));
+        const cv = normalize(cross(cu, cw));
+        return [ cu[0], cv[0], cw[0], cu[1], cv[1], cw[1], cu[2], cv[2], cw[2] ];
+    }
+
+    // Расположение Uniform'ов
+    const locResScene = gl.getUniformLocation(progScene, "u_resolution");
+    const locTimeScene = gl.getUniformLocation(progScene, "u_time");
+    const locCamPos = gl.getUniformLocation(progScene, "u_camPos");
+    const locCamMat = gl.getUniformLocation(progScene, "u_camMat");
+
+    const locResPost = gl.getUniformLocation(progPost, "u_resolution");
+    const locTexPost = gl.getUniformLocation(progPost, "u_texture");
+
+    let startTime = performance.now();
+
+    function render() {
+        const time = (performance.now() - startTime) * 0.001;
+
+        // Позиция камеры в декартовых координатах
+        const ro =[
+            camRadius * Math.sin(camTheta) * Math.sin(camPhi),
+            camRadius * Math.cos(camTheta),
+            camRadius * Math.sin(camTheta) * Math.cos(camPhi)
+        ];
+        const camMat = getLookAt(ro,[0, 0, 0]);
+
+        // --- ПАСС 1: Интегрирование физики в HDR текстуру ---
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        
+        gl.useProgram(progScene);
+        gl.uniform2f(locResScene, canvas.width, canvas.height);
+        gl.uniform1f(locTimeScene, time);
+        gl.uniform3fv(locCamPos, ro);
+        gl.uniformMatrix3fv(locCamMat, false, camMat);
+        
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        // --- ПАСС 2: Cinematic Post-Processing на экран ---
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        
+        gl.useProgram(progPost);
+        gl.uniform2f(locResPost, canvas.width, canvas.height);
+        
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, hdrTex);
+        gl.uniform1i(locTexPost, 0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        requestAnimationFrame(render);
+    }
+
+    requestAnimationFrame(render);
+</script>
+</body>
+</html>
