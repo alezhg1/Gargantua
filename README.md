@@ -1,6 +1,18 @@
-# Gargantua - Black Hole Simulation
+# Gargantua - Black Hole Simulation (RU)
 
 Интерактивное численное моделирование гравитационного линзирования чёрной дыры методом трассировки лучей.
+
+## Оглавление
+
+1. [Научная оценка проекта](#научная-оценка-проекта)
+2. [Теоретическая основа реализации](#теоретическая-основа-реализации)
+   - [Метрика пространства-времени](#1-метрика-пространства-времени)
+   - [Уравнения геодезических и интегралы движения](#2-уравнения-геодезических-и-интегралы-движения)
+   - [Численное интегрирование методом Рунге-Кутты 4-го порядка](#3-численное-интегрирование-методом-рунге-кутты-4-го-порядка)
+   - [Параметры наблюдателя и геометрия сцены](#4-параметры-наблюдателя-и-геометрия-сцены)
+   - [Визуализация аккреционного диска и гравитационное линзирование](#5-визуализация-аккреционного-диска-и-гравитационное-линзирование)
+3. [Рекомендуемая литература](#рекомендуемая-литература)
+4. [Технические характеристики реализации](#технические-характеристики-реализации)
 
 ---
 
@@ -157,10 +169,23 @@ $$y_{n+1} = y_n + \frac{1}{6}(k_1 + 2k_2 + 2k_3 + k_4)$$
 ---
 
 
-# Gargantua -  Black Hole Simulation
+# Gargantua -  Black Hole Simulation (EN)
 
 Interactive numerical modeling of black hole gravitational lensing using the ray tracing method.
 
+
+---
+## Table of Contents
+
+1. [Scientific Assessment of the Project](#scientific-assessment-of-the-project)
+2. [Theoretical Basis of Implementation](#theoretical-basis-of-implementation)
+   - [Spacetime Metric](#1-spacetime-metric)
+   - [Geodesic Equations and Integrals of Motion](#2-geodesic-equations-and-integrals-of-motion)
+   - [Numerical Integration Scheme](#3-numerical-integration-scheme)
+   - [Observer Configuration and Scene Geometry](#4-observer-configuration-and-scene-geometry)
+   - [Visualization and Data Stream](#5-visualization-and-data-stream)
+3. [Recommended Literature](#recommended-literature)
+4. [Technical Implementation Characteristics](#technical-implementation-characteristics)
 ---
 
 ## Scientific Assessment of the Project
