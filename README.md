@@ -1,6 +1,8 @@
 # Gargantua - Black Hole Simulation (RU)
 
 Интерактивное численное моделирование гравитационного линзирования чёрной дыры методом трассировки лучей.
+<img width="2560" height="1418" alt="image" src="https://github.com/user-attachments/assets/a10bd50f-c4c7-4a82-a816-ca1bd834b72f" />
+<img width="1280" height="634" alt="image" src="https://github.com/user-attachments/assets/9c3cfcc0-4137-444e-bf57-7778b46a0e47" />
 
 ## Оглавление
 
