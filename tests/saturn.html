@@ -1,0 +1,416 @@
+<!--This code is just for tests, never mind-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saturn - Ringed Giant Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        /* --- NASA FONT --- */
+        @font-face {
+            font-family: 'NASA';
+            src: url('fonts/nasa.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+
+        :root {
+            --bg-dark: #121212;
+            --panel-bg: rgba(30, 30, 30, 0.6);
+            --border-color: rgba(255, 255, 255, 0.06);
+            --text-main: #e0e0e0;
+            --text-muted: #999;
+            --blur: 12px;
+            --saturn-gold: #d4a86b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-dark);
+            background-image: radial-gradient(circle at top, #2a2a2a 0%, #121212 80%);
+            color: var(--text-main);
+            min-height: 100vh;
+            line-height: 1.6;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        a { text-decoration: none; color: inherit; transition: all 0.3s ease; }
+
+        /* --- BACKGROUND 3D SATURN --- */
+        #saturn-bg-container {
+            position: fixed;
+            top: 0;
+            right: -5%;
+            width: 60vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        /* --- MAIN WRAPPER --- */
+        .home-wrapper {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 2rem 1.5rem;
+            text-align: left;
+        }
+
+        .home-container {
+            max-width: 700px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* --- HERO CARD --- */
+        .hero-card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(var(--blur));
+            -webkit-backdrop-filter: blur(var(--blur));
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 3rem 1.8rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1.2rem;
+
+            opacity: 0;
+            transform: translateX(-20px);
+            animation: fadeInLeft 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes fadeInLeft {
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .hero-title {
+            font-family: 'NASA', sans-serif;
+            font-size: 3.2rem;
+            font-weight: 400;
+            margin: 0;
+            background: linear-gradient(135deg, #fff 0%, var(--saturn-gold) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 2px;
+            line-height: 1.1;
+        }
+
+        .hero-subtitle {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 1.05rem;
+            color: var(--text-muted);
+            max-width: 520px;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* --- BUTTONS --- */
+        .hero-actions {
+            display: flex;
+            gap: 0.9rem;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            margin-top: 0.5rem;
+        }
+
+        .btn-glass {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.8rem 1.5rem;
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            will-change: transform;
+        }
+
+        .btn-primary-glass {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-primary-glass:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .btn-secondary-glass {
+            background: transparent;
+            color: var(--text-muted);
+            border-color: var(--border-color);
+        }
+
+        .btn-secondary-glass:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            transform: translateY(-3px);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* --- STATS GRID --- */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 1.2rem;
+            width: 100%;
+            justify-items: start;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 1.6rem 1.3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.7rem;
+
+            opacity: 0;
+            transform: translateX(-15px);
+            animation: fadeInLeft 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            will-change: transform, opacity;
+        }
+
+        .stat-card:nth-child(1) { animation-delay: 0.2s; }
+        .stat-card:nth-child(2) { animation-delay: 0.3s; }
+        .stat-card:nth-child(3) { animation-delay: 0.4s; }
+
+        .stat-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-8px);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .stat-number {
+            font-size: 2.1rem;
+            font-weight: 800;
+            color: #fff;
+            background: linear-gradient(135deg, #fff 0%, var(--saturn-gold) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .hero-title { font-size: 2.4rem; }
+            .hero-subtitle { font-size: 0.95rem; }
+            .hero-card { padding: 2.2rem 1.3rem; }
+            .stats-grid { grid-template-columns: 1fr; }
+            #saturn-bg-container {
+                width: 80vw;
+                right: -10%;
+                opacity: 0.3;
+            }
+            .home-wrapper { padding: 1rem; }
+            .home-container { max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Фоновая 3D Сатурн -->
+    <div id="saturn-bg-container"></div>
+
+    <div class="home-wrapper">
+        <div class="home-container">
+
+            <!-- Hero Section -->
+            <div class="hero-card">
+                <h1 class="hero-title">Saturn</h1>
+                <p class="hero-subtitle">
+                    Interactive visualization of the ringed gas giant with real-time orbital mechanics and atmospheric rendering
+                </p>
+
+                <div class="hero-actions">
+                    <a href="saturn.html" class="btn-glass btn-primary-glass">
+                        🪐 Explore Rings →
+                    </a>
+                </div>
+            </div>
+
+            <!-- Stats Section -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-number">82</span>
+                    <span class="stat-label">Known Moons</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number">9.5</span>
+                    <span class="stat-label">AU from Sun</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number">29.5</span>
+                    <span class="stat-label">Earth Years (Orbit)</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Script for 3D Saturn with Rings (PROCEDURAL - NO CORS) -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('saturn-bg-container');
+            if (!container) return;
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            const scene = new THREE.Scene();
+            scene.background = null;
+
+            const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+            camera.position.z = 5;
+
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            // === SATURN SPHERE (Procedural Colors) ===
+            const saturnGeometry = new THREE.SphereGeometry(1.5, 64, 64);
+
+            // Создаем градиентную текстуру для Сатурна
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // Градиент для Сатурна (золотисто-коричневые полосы)
+            const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+            gradient.addColorStop(0, '#d4a86b');
+            gradient.addColorStop(0.2, '#c9b896');
+            gradient.addColorStop(0.4, '#e8c896');
+            gradient.addColorStop(0.5, '#d4a86b');
+            gradient.addColorStop(0.6, '#c9b896');
+            gradient.addColorStop(0.8, '#e8c896');
+            gradient.addColorStop(1, '#d4a86b');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Добавляем немного шума для реалистичности
+            for (let i = 0; i < 5000; i++) {
+                const x = Math.random() * 512;
+                const y = Math.random() * 512;
+                const opacity = Math.random() * 0.1;
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                ctx.fillRect(x, y, 2, 2);
+            }
+
+            const saturnTexture = new THREE.CanvasTexture(canvas);
+
+            const saturnMaterial = new THREE.MeshBasicMaterial({
+                map: saturnTexture,
+                transparent: true,
+                opacity: 0.9
+            });
+
+            const saturn = new THREE.Mesh(saturnGeometry, saturnMaterial);
+            saturn.rotation.z = 26.7 * Math.PI / 180; // Saturn's axial tilt
+            scene.add(saturn);
+
+            // === SATURN RINGS (Procedural) ===
+            const ringGeometry = new THREE.RingGeometry(2.0, 3.2, 128);
+
+            // Создаем текстуру для колец с градиентом прозрачности
+            const ringCanvas = document.createElement('canvas');
+            ringCanvas.width = 512;
+            ringCanvas.height = 512;
+            const ringCtx = ringCanvas.getContext('2d');
+
+            // Создаем радиальный градиент для колец
+            const ringGradient = ringCtx.createRadialGradient(256, 256, 200, 256, 256, 256);
+            ringGradient.addColorStop(0, 'rgba(201, 184, 150, 0)');
+            ringGradient.addColorStop(0.2, 'rgba(201, 184, 150, 0.6)');
+            ringGradient.addColorStop(0.4, 'rgba(232, 200, 150, 0.8)');
+            ringGradient.addColorStop(0.6, 'rgba(201, 184, 150, 0.7)');
+            ringGradient.addColorStop(0.8, 'rgba(232, 200, 150, 0.5)');
+            ringGradient.addColorStop(1, 'rgba(201, 184, 150, 0)');
+
+            ringCtx.fillStyle = ringGradient;
+            ringCtx.fillRect(0, 0, 512, 512);
+
+            // Добавляем детали колец (полосы)
+            for (let i = 0; i < 20; i++) {
+                const radius = 200 + Math.random() * 50;
+                const width = Math.random() * 10 + 2;
+                const opacity = Math.random() * 0.3 + 0.1;
+                ringCtx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
+                ringCtx.lineWidth = width;
+                ringCtx.beginPath();
+                ringCtx.arc(256, 256, radius, 0, Math.PI * 2);
+                ringCtx.stroke();
+            }
+
+            const ringTexture = new THREE.CanvasTexture(ringCanvas);
+
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                map: ringTexture,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.8,
+                depthWrite: false
+            });
+
+            const rings = new THREE.Mesh(ringGeometry, ringMaterial);
+            rings.rotation.x = Math.PI / 2;
+            rings.rotation.z = 26.7 * Math.PI / 180;
+            scene.add(rings);
+
+            // === ANIMATION ===
+            const animate = () => {
+                requestAnimationFrame(animate);
+                saturn.rotation.y += 0.0008;
+                rings.rotation.y += 0.0008;
+                renderer.render(scene, camera);
+            };
+
+            animate();
+
+            // === RESIZE HANDLER ===
+            window.addEventListener('resize', () => {
+                const newWidth = container.clientWidth;
+                const newHeight = container.clientHeight;
+                renderer.setSize(newWidth, newHeight);
+                camera.aspect = newWidth / newHeight;
+                camera.updateProjectionMatrix();
+            });
+        });
+    </script>
+</body>
+</html>

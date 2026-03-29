@@ -51,6 +51,47 @@
         }
         .crosshair::before { content: ''; position: absolute; top: 9px; left: 0; width: 20px; height: 2px; background: #fff; }
         .crosshair::after { content: ''; position: absolute; top: 0; left: 9px; width: 2px; height: 20px; background: #fff; }
+
+        /* === НОВЫЕ СТИЛИ ДЛЯ ИНФО-ПАНЕЛЕЙ === */
+        #info-panels {
+            position: absolute;
+            bottom: 40px;
+            left: 0;
+            right: 0;
+            padding: 0 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            pointer-events: none;
+            z-index: 100;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-size: 12px;
+            color: var(--ui-color);
+        }
+        .info-group {
+            background: var(--ui-bg);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            pointer-events: auto;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .info-group.right {
+            gap: 0;
+        }
+        .status-green {
+            color: #00ff66;
+            font-weight: 600;
+            text-shadow: 0 0 8px rgba(0, 255, 102, 0.4);
+        }
+        .info-label {
+            color: rgba(255, 255, 255, 0.6);
+            letter-spacing: 0.5px;
+        }
     </style>
 </head>
 <body>
@@ -59,7 +100,7 @@
     <div id="telemetry">
         <h1>Gargantua</h1>
         <div class="sub">Schwarzschild Event Horizon Observatory</div>
-        
+
         <div class="data-row"><span class="data-label">MASS (M_☉)</span><span class="data-value">4.3 × 10⁶</span></div>
         <div class="data-row"><span class="data-label">METRIC</span><span class="data-value">Schwarzschild</span></div>
         <div class="data-row"><span class="data-label">GEODESIC INTEGRATION</span><span class="data-value">Runge-Kutta 4</span></div>
@@ -69,6 +110,17 @@
     </div>
     <div class="crosshair"></div>
     <div id="controls">Orbital Drag: Mouse / Touch &nbsp;&nbsp;|&nbsp;&nbsp; Zoom: Scroll</div>
+
+    <!-- === НОВЫЕ ИНФО-БЛОКИ === -->
+    <div id="info-panels">
+        <div class="info-group left">
+            <span><span class="info-label">Data stream:</span> <span class="status-green">(active)</span></span>
+            <span><span class="info-label">Energy Level:</span> <span class="status-green">Stable</span></span>
+        </div>
+        <div class="info-group right">
+            <span><span class="info-label">time duration:</span> <span id="page-time">00:00</span></span>
+        </div>
+    </div>
 </div>
 
 <canvas id="glcanvas"></canvas>
@@ -162,16 +214,16 @@
 
     vec4 sampleAccretionDisk(vec3 p, vec3 rayDir) {
         float r = length(p.xz);
-        
+
         // Математически гладкий профиль диска (Экспоненциальное утолщение к краям)
         float thickness = 0.03 + 0.04 * (r - ISCO);
         float h = abs(p.y);
-        
+
         // Быстрый выход, если луч вне геометрии диска
         if (r < ISCO || r > DISK_OUT || h > thickness * 4.0) return vec4(0.0);
 
         // Кеплеровская кинематика газа (вращение)
-        float velMag = sqrt(RS / (2.0 * r)); 
+        float velMag = sqrt(RS / (2.0 * r));
         vec3 velDir = normalize(vec3(-p.z, 0.0, p.x));
         vec3 gasVel = velDir * velMag;
 
@@ -183,7 +235,7 @@
         float D = dopplerShift * gravRedshift; // Итоговый фактор сдвига
 
         // Плотность плазмы (мягкое затухание + радиальные границы)
-        float density = exp(-h / thickness); 
+        float density = exp(-h / thickness);
         density *= smoothstep(ISCO, ISCO + 0.5, r) * smoothstep(DISK_OUT, DISK_OUT - 2.0, r);
 
         // Легкая спиральная текстура (без шума, только гладкие волны)
@@ -194,14 +246,14 @@
 
         // Температурный профиль газа T ~ r^-0.75
         float baseTemp = pow(ISCO / r, 0.8);
-        
+
         // Сильное влияние Доплера на воспринимаемую температуру (Цвет)
         float shiftedTemp = baseTemp * D;
         vec3 color = getBlackbody(shiftedTemp);
 
         // Болометрическая светимость масштабируется как D^4 (релятивистский инвариант)
-        float intensity = pow(D, 4.0) * 12.0; 
-        
+        float intensity = pow(D, 4.0) * 12.0;
+
         // Добавление яркости внутреннему краю (Фотонное кольцо диска)
         intensity *= mix(1.0, 3.0, exp(-(r - ISCO)*2.0));
 
@@ -221,7 +273,7 @@
         vec3 p = dir * 150.0;
         vec3 i = floor(p);
         vec3 f = fract(p);
-        
+
         // Псевдо-Вороной для звезд
         vec2 starData = vec2(0.0);
         float minDist = 1.0;
@@ -243,7 +295,7 @@
                 }
             }
         }
-        
+
         // Рисуем звезду только если hash высокий (редкие звезды)
         float starIntensity = smoothstep(0.3, 0.0, minDist) * step(0.95, hValue);
         vec3 starColor = mix(vec3(1.0, 0.7, 0.4), vec3(0.5, 0.8, 1.0), fract(hValue * 17.0));
@@ -261,11 +313,11 @@
 
         vec3 ro = u_camPos;
         // Узкий FOV (Телеобъектив), чтобы дыра выглядела монументально
-        vec3 rd = normalize(u_camMat * vec3(uv, 1.8)); 
+        vec3 rd = normalize(u_camMat * vec3(uv, 1.8));
 
         vec3 color = vec3(0.0);
         float transmittance = 1.0;
-        
+
         vec3 p = ro;
         vec3 v = rd;
 
@@ -287,23 +339,23 @@
             // Волюметрический рендер плазмы диска
             if (abs(p.y) < 1.0 && r > ISCO && r < DISK_OUT) {
                 vec4 disk = sampleAccretionDisk(p, v);
-                
+
                 // alpha зависит от плотности и длины шага
-                float alpha = disk.a * 0.12; 
-                
+                float alpha = disk.a * 0.12;
+
                 // Накопление света
                 color += transmittance * disk.rgb * alpha;
                 transmittance *= (1.0 - alpha);
-                
+
                 // Ранний выход, если луч полностью заблокирован газом
-                if (transmittance < 0.01) break; 
+                if (transmittance < 0.01) break;
             }
 
-            // Адаптивный шаг dt: 
+            // Адаптивный шаг dt:
             // Меньший шаг вблизи черной дыры для идеальной точности колец Эйнштейна
             float distToEventHorizon = r - RS;
             float dt = 0.02 + 0.1 * smoothstep(0.0, 5.0, distToEventHorizon);
-            
+
             rk4_step(p, v, dt);
         }
 
@@ -344,21 +396,21 @@
     vec3 getCinematicBloom(vec2 uv) {
         vec3 bloom = vec3(0.0);
         float weightSum = 0.0;
-        
+
         // Эллиптическое размытие (имитация анаморфных линз)
         vec2 texel = vec2(1.0 / u_resolution.x, 1.0 / u_resolution.y);
-        float radius = 4.0; 
-        
+        float radius = 4.0;
+
         for(float x = -radius; x <= radius; x += 1.0) {
             for(float y = -radius; y <= radius; y += 1.0) {
                 // Масштабируем по X для легкого анаморфного горизонтального свечения
-                vec2 offset = vec2(x * 1.5, y) * texel * 2.5; 
+                vec2 offset = vec2(x * 1.5, y) * texel * 2.5;
                 float weight = exp(-0.5 * (x*x + y*y) / (radius * 0.5));
-                
+
                 vec3 col = texture(u_texture, uv + offset).rgb;
                 // Порог свечения (Bloom Threshold)
-                vec3 highlight = max(col - vec3(1.2), vec3(0.0)); 
-                
+                vec3 highlight = max(col - vec3(1.2), vec3(0.0));
+
                 bloom += highlight * weight;
                 weightSum += weight;
             }
@@ -457,7 +509,7 @@
 
         hdrTex = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, hdrTex);
-        
+
         // 16-bit float для сохранения яркости свыше 1.0 (Основа реалистичного свечения)
         const format = extFloat ? gl.RGBA16F : gl.RGBA;
         const type = extFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
@@ -476,7 +528,7 @@
 
     // Ресайз окна (Оптимизация: dpr = 1.0 обеспечивает идеальный баланс между 60FPS и качеством)
     function resize() {
-        const dpr = window.devicePixelRatio > 1.5 ? 1.0 : window.devicePixelRatio; 
+        const dpr = window.devicePixelRatio > 1.5 ? 1.0 : window.devicePixelRatio;
         canvas.width = window.innerWidth * dpr;
         canvas.height = window.innerHeight * dpr;
         setupRenderTarget(canvas.width, canvas.height);
@@ -488,7 +540,7 @@
     let camRadius = 10.0;
     let camTheta = Math.PI / 2.05; // Почти строго с экватора для красивого профиля диска
     let camPhi = 0.5;
-    
+
     let isDrag = false, lastX = 0, lastY = 0;
     const uiDist = document.getElementById('ui-dist');
 
@@ -540,6 +592,21 @@
     const locTexPost = gl.getUniformLocation(progPost, "u_texture");
 
     let startTime = performance.now();
+
+    // === ТАЙМЕР ВРЕМЕНИ НА СТРАНИЦЕ ===
+    const pageTimeEl = document.getElementById('page-time');
+    function updatePageTime() {
+        const elapsed = Math.floor((performance.now() - startTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        const minStr = minutes.toString().padStart(2, '0');
+        const secStr = seconds.toString().padStart(2, '0');
+        if (pageTimeEl) {
+            pageTimeEl.textContent = `${minStr}:${secStr}`;
+        }
+        requestAnimationFrame(updatePageTime);
+    }
+    updatePageTime();
 
     function render() {
         const time = (performance.now() - startTime) * 0.001;
